@@ -1,0 +1,11 @@
+{
+  "require.main.filename": "D:\\AI混剪工具测试\\short-video-mashup-tool\\test-main.js",
+  "require.main.paths": [
+    "D:\\AI混剪工具测试\\short-video-mashup-tool\\node_modules",
+    "D:\\AI混剪工具测试\\node_modules",
+    "D:\\node_modules"
+  ],
+  "require.main.id": ".",
+  "require.main.exports": "object",
+  "process.mainModule.filename": "D:\\AI混剪工具测试\\short-video-mashup-tool\\test-main.js"
+}

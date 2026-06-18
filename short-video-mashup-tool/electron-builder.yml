@@ -1,0 +1,50 @@
+appId: com.koudoucode.short-video-mashup
+productName: "短视频智能混剪工具"
+copyright: "Copyright © 2025 KoudouCode"
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist-electron/**/*
+  - dist/**/*
+  - resources/**/*
+extraResources:
+  - from: resources/
+    to: resources/
+    filter:
+      - "**/*"
+  - from: backend/dist/
+    to: backend/
+    filter:
+      - "**/*"
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icon.ico
+  artifactName: "${productName}-${version}-win-x64.${ext}"
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "短视频智能混剪工具"
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: resources/icon.icns
+  category: public.app-category.video
+  artifactName: "${productName}-${version}-mac-${arch}.${ext}"
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Video
+  artifactName: "${productName}-${version}-linux-x64.${ext}"
