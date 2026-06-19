@@ -1,0 +1,8 @@
+{
+  "type": "string",
+  "hasApp": false,
+  "isString": true,
+  "electronVersion": "28.3.3",
+  "nodeVersion": "18.18.2",
+  "error": "electron.app is undefined"
+}

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>短视频智能混剪工具</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- 错误捕获 -->
+    <div id="error-info" style="position:fixed;bottom:0;left:0;right:0;background:#fff3cd;padding:8px;font:12px monospace;display:none;z-index:9999;"></div>
+    <script>
+      // Read backend port from URL query parameter (injected by start script)
+      var params = new URLSearchParams(window.location.search);
+      var backendPort = parseInt(params.get('backend_port') || '');
+      if (backendPort) {
+        window.__BACKEND_PORT__ = backendPort;
+      }
+
+      window.onerror = function(msg, url, line, col, err) {
+        var el = document.getElementById('error-info');
+        el.style.display = 'block';
+        el.innerHTML = '<b>JS Error:</b> ' + msg + '<br>at ' + url + ':' + line + ':' + col;
+        if (err && err.stack) el.innerHTML += '<br><pre>' + err.stack + '</pre>';
+      };
+      // Also show if React doesn't render within 5 seconds
+      setTimeout(function() {
+        var root = document.getElementById('root');
+        if (!root || root.innerHTML.trim() === '' || root.children.length === 0) {
+          var el = document.getElementById('error-info');
+          el.style.display = 'block';
+          el.innerHTML = '<b>⚠ 页面空白:</b> React 组件可能未成功渲染，请打开浏览器控制台(F12)查看详细错误';
+        }
+      }, 5000);
+    </script>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
