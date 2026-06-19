@@ -22,6 +22,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Query, HTTPException, UploadFile, File
 
+from routes.ai_editing import register_material_path
+
 from config import (
     FFPROBE_EXECUTABLE,
     FFMPEG_EXECUTABLE,
@@ -139,6 +141,9 @@ async def validate_material(request: dict):
         })
 
     material_type: str = "video" if _is_video(ext) else "image"
+
+    # Register validated file path for preview serving
+    register_material_path(file_path)
 
     return _build_success({
         "valid": True,
@@ -400,6 +405,9 @@ async def upload_material(file: UploadFile = File(...)):
         return _build_error(40007, f"文件超过大小限制")
 
     material_type = "video" if _is_video(ext) else "image"
+
+    # Register uploaded file path for preview serving
+    register_material_path(file_path_str)
 
     # Probe metadata (non-fatal if probe fails)
     probe_data = {}

@@ -72,6 +72,9 @@ async def analyze_video_endpoint(req: dict):
     if not video_path or not os.path.exists(video_path):
         return _err(40001, "视频文件不存在")
 
+    # Register for preview serving (may be outside TEMP_DIR)
+    register_material_path(video_path)
+
     try:
         # Detect scenes
         scenes = detect_scenes(video_path)
@@ -221,6 +224,8 @@ async def full_pipeline(req: dict):
         for vp in video_paths:
             if not os.path.exists(vp):
                 continue
+            # Register for preview serving
+            register_material_path(vp)
             scenes = detect_scenes(vp)
             frame_dir = os.path.join(TEMP_DIR, "ai_frames", os.path.basename(vp))
             frame_paths = extract_scene_frames(vp, scenes, frame_dir)
@@ -382,6 +387,12 @@ async def preview_video(req: dict):
         return _err(40001, "缺少 segments")
 
     try:
+        # Register all video paths for preview serving
+        for seg in segments:
+            vp = seg.get("video_path", "")
+            if vp and os.path.exists(vp):
+                register_material_path(vp)
+
         trimmed = []
         for i, seg in enumerate(segments):
             vp = seg.get("video_path", "")
@@ -465,25 +476,59 @@ async def list_fonts():
     })
 
 
-# ─── Path safety helper ──────────────────────────────
+# ─── Path safety helpers ──────────────────────────────
+
+# Set of registered material file paths (populated by /validate and /upload)
+_registered_material_paths: set = set()
+
+# Supported media extensions allowed for direct file serving
+_SAFE_MEDIA_EXTENSIONS: set[str] = {
+    '.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v', '.flv', '.wmv',
+    '.mp3', '.wav', '.aac', '.ogg', '.m4a',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff',
+}
+
+
+def register_material_path(file_path: str) -> None:
+    """Register a validated material path as safe for preview serving."""
+    try:
+        _registered_material_paths.add(os.path.realpath(file_path))
+    except (ValueError, OSError):
+        pass
+
+
+def _is_allowed_media_extension(path: str) -> bool:
+    """Check if the file path has a media extension (extra safety layer)."""
+    ext = Path(path).suffix.lower()
+    return ext in _SAFE_MEDIA_EXTENSIONS
+
 
 def _is_safe_path(requested_path: str) -> bool:
-    """Check that a path resides within allowed directories (TEMP_DIR or video_paths from request)."""
-    allowed_dirs = [
-        os.path.realpath(TEMP_DIR),
-        os.path.realpath(os.path.join(TEMP_DIR, "outputs")),
-        os.path.realpath(os.path.join(TEMP_DIR, "tts")),
-        os.path.realpath(os.path.join(TEMP_DIR, "thumbs")),
-        os.path.realpath(os.path.join(TEMP_DIR, "previews")),
-        os.path.realpath(os.path.join(TEMP_DIR, "ai_frames")),
-    ]
+    """Check that a path is safe for file serving.
+
+    Allows:
+    - Paths within TEMP_DIR (generated content)
+    - Previously registered material paths (imported videos)
+    - Both checks also require a supported media extension
+    """
     try:
         real_path = os.path.realpath(requested_path)
     except (ValueError, OSError):
         return False
-    for allowed in allowed_dirs:
-        if real_path.startswith(allowed + os.sep) or real_path == allowed:
-            return True
+
+    # Must have a recognized media extension (prevents reading arbitrary files)
+    if not _is_allowed_media_extension(real_path):
+        return False
+
+    # Check TEMP_DIR subdirectories
+    temp_dir_real = os.path.realpath(TEMP_DIR)
+    if real_path.startswith(temp_dir_real + os.sep) or real_path == temp_dir_real:
+        return True
+
+    # Check registered material paths
+    if real_path in _registered_material_paths:
+        return True
+
     return False
 
 
