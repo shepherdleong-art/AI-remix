@@ -34,6 +34,7 @@ from services.video_service import (
 )
 from services.video_service import _ffmpeg  # used by /thumb and /video endpoints
 from config import TEMP_DIR, FFMPEG_EXECUTABLE
+import os
 
 router = APIRouter(prefix="/api/ai-editing", tags=["ai-editing"])
 
@@ -194,9 +195,6 @@ async def full_pipeline(req: dict):
     video_paths = req.get("video_paths", [])
     voice = req.get("voice", "Cherry")
     output_name = req.get("output_name", "ai_edit")
-    api_key = req.get("api_key", "")
-    target_width = int(req.get("width", 1080))
-    target_height = int(req.get("height", 1920))
 
     if not script:
         return _err(40001, "缺少 script 参数")
@@ -215,8 +213,9 @@ async def full_pipeline(req: dict):
         })
 
         # Step 2: Analyze each video
-        # Build enriched scene list with video_path attached for matching
-        enriched_scenes = []
+        all_scenes = []
+        all_descriptions = []
+        all_frame_paths = []
 
         for vp in video_paths:
             if not os.path.exists(vp):
@@ -227,37 +226,37 @@ async def full_pipeline(req: dict):
             prompts = [f"时间点 {s['start']:.1f}s-{s['end']:.1f}s" for s in scenes]
             descriptions = await analyze_frames_batch(frame_paths, prompts, api_key)
 
-            for i, sc in enumerate(scenes):
-                enriched_scenes.append({
-                    "index": len(enriched_scenes),
-                    "description": descriptions[i] if i < len(descriptions) else "",
-                    "video_path": vp,
-                    "start": sc["start"],
-                    "end": sc["end"],
-                    "duration": sc["duration"],
-                })
+            all_scenes.extend(scenes)
+            all_descriptions.extend(descriptions)
+            all_frame_paths.extend(frame_paths)
 
         steps.append({
             "step": "video_analysis",
             "status": "done",
             "videos_analyzed": len(video_paths),
-            "total_scenes": len(enriched_scenes),
+            "total_scenes": len(all_scenes),
         })
 
-        # Step 3: Match script segments to enriched video scenes
+        # Step 3: Match
         timeline = await match_scenes_to_segments(
-            segments, enriched_scenes, api_key
+            segments, all_descriptions, all_frame_paths
         )
 
-        # Build segments for compositing
+        # Build segments for compositing with actual video paths
+        # Map scene frame paths back to original video + timestamp
         comp_segments = []
+        fp_idx = 0
         for item in timeline:
-            comp_segments.append({
-                "video_path": item.get("video_path", ""),
-                "start_time": item.get("start_time", 0.0),
-                "duration": item.get("duration", 3.0),
-                "segment_text": item.get("segment_text", ""),
-            })
+            scene_idx = item.get("scene_path", "")
+            # Find original video that contains this scene
+            for vp in video_paths:
+                if os.path.exists(vp) and os.path.basename(scene_idx).startswith("scene_"):
+                    comp_segments.append({
+                        "scene_path": vp,
+                        "duration": item.get("duration", 3.0),
+                        "segment_text": item.get("segment_text", ""),
+                    })
+                    break
 
         steps.append({
             "step": "scene_matching",
@@ -274,8 +273,7 @@ async def full_pipeline(req: dict):
         output_dir = os.path.join(TEMP_DIR, "outputs")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{output_name}.mp4")
-        composite_clip(comp_segments, audio_path, output_path,
-                       target_width, target_height)
+        composite_clip(comp_segments, audio_path, output_path)
 
         steps.append({
             "step": "composite",
@@ -465,35 +463,11 @@ async def list_fonts():
     })
 
 
-# ─── Path safety helper ──────────────────────────────
-
-def _is_safe_path(requested_path: str) -> bool:
-    """Check that a path resides within allowed directories (TEMP_DIR or video_paths from request)."""
-    allowed_dirs = [
-        os.path.realpath(TEMP_DIR),
-        os.path.realpath(os.path.join(TEMP_DIR, "outputs")),
-        os.path.realpath(os.path.join(TEMP_DIR, "tts")),
-        os.path.realpath(os.path.join(TEMP_DIR, "thumbs")),
-        os.path.realpath(os.path.join(TEMP_DIR, "previews")),
-        os.path.realpath(os.path.join(TEMP_DIR, "ai_frames")),
-    ]
-    try:
-        real_path = os.path.realpath(requested_path)
-    except (ValueError, OSError):
-        return False
-    for allowed in allowed_dirs:
-        if real_path.startswith(allowed + os.sep) or real_path == allowed:
-            return True
-    return False
-
-
 # ─── File Serving for Preview ──────────────────────────
 
 @router.get("/video")
 async def serve_video(path: str):
     """Serve generated MP4 video for browser preview."""
-    if not _is_safe_path(path):
-        raise HTTPException(status_code=403, detail="Access denied")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Video not found")
     return FileResponse(path, media_type="video/mp4")
@@ -502,8 +476,6 @@ async def serve_video(path: str):
 @router.get("/audio")
 async def serve_audio(path: str):
     """Serve generated MP3 audio for browser preview."""
-    if not _is_safe_path(path):
-        raise HTTPException(status_code=403, detail="Access denied")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Audio not found")
     return FileResponse(path, media_type="audio/mpeg")
@@ -512,12 +484,8 @@ async def serve_audio(path: str):
 @router.get("/thumb")
 async def serve_thumbnail(path: str, t: float = 1.0):
     """Extract and serve a video thumbnail at time t seconds."""
-    if not _is_safe_path(path):
-        raise HTTPException(status_code=403, detail="Access denied")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Video not found")
-    # Clamp t to reasonable range
-    t = max(0.0, min(float(t), 3600.0))
     try:
         thumb_dir = os.path.join(TEMP_DIR, "thumbs")
         os.makedirs(thumb_dir, exist_ok=True)

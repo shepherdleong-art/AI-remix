@@ -10,13 +10,6 @@
     <!-- 错误捕获 -->
     <div id="error-info" style="position:fixed;bottom:0;left:0;right:0;background:#fff3cd;padding:8px;font:12px monospace;display:none;z-index:9999;"></div>
     <script>
-      // Read backend port from URL query parameter (injected by start script)
-      var params = new URLSearchParams(window.location.search);
-      var backendPort = parseInt(params.get('backend_port') || '');
-      if (backendPort) {
-        window.__BACKEND_PORT__ = backendPort;
-      }
-
       window.onerror = function(msg, url, line, col, err) {
         var el = document.getElementById('error-info');
         el.style.display = 'block';

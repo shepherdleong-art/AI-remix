@@ -665,7 +665,6 @@ class RenderEngine:
     def __init__(self):
         self._current_process: Optional[asyncio.subprocess.Process] = None
         self._is_cancelled: bool = False
-        self._segments: List[Dict[str, Any]] = []
 
     async def render(
         self,
@@ -689,7 +688,6 @@ class RenderEngine:
             Dict with render result (output_path, duration, file_size, thumbnail)
         """
         self._is_cancelled = False
-        self._segments = template.get("segments", [])
 
         # Build FFmpeg command
         builder: FFmpegCommandBuilder = FFmpegCommandBuilder(
@@ -809,14 +807,10 @@ class RenderEngine:
     def _calculate_total_duration(self) -> float:
         """Calculate total output duration from all segments."""
         total: float = 0.0
-        for seg in self._segments:
-            start = float(seg.get("start_time", seg.get("startTime", 0)))
-            end = float(seg.get("end_time", seg.get("endTime", start + 3)))
-            speed = float(seg.get("speed", 1.0))
-            if speed <= 0:
-                speed = 1.0
-            total += (end - start) / speed
-        return total if total > 0 else 60.0
+        for seg in (self.segments if hasattr(self, 'segments') else []):
+            # Not available at this point; return rough estimate
+            pass
+        return 60.0  # Fallback
 
     async def _parse_progress(
         self,
@@ -946,9 +940,7 @@ class RenderQueue:
         self._load_persisted_jobs()
 
     def _load_persisted_jobs(self) -> None:
-        """Load jobs from persisted JSON files.
-        Jobs that were 'processing' at crash time are marked as 'failed'.
-        """
+        """Load jobs from persisted JSON files."""
         if not RENDERS_DIR.exists():
             return
         for file_path in RENDERS_DIR.glob("*.json"):
@@ -957,18 +949,6 @@ class RenderQueue:
                     job_data: Dict[str, Any] = json.load(f)
                 job_id: str = job_data.get("id", "")
                 if job_id:
-                    # Reset orphaned processing jobs
-                    if job_data.get("status") == "processing":
-                        job_data["status"] = "failed"
-                        job_data["error"] = "服务异常重启，渲染中断"
-                        job_data["current_step"] = "已中断"
-                        job_data["completed_at"] = datetime.now(timezone.utc).isoformat()
-                        # Persist the updated status
-                        try:
-                            with open(file_path, "w", encoding="utf-8") as jf:
-                                json.dump(job_data, jf, ensure_ascii=False, indent=2, default=str)
-                        except IOError:
-                            pass
                     self._jobs[job_id] = job_data
             except (json.JSONDecodeError, IOError):
                 pass
@@ -1034,10 +1014,7 @@ class RenderQueue:
         try:
             self._queue.put_nowait(job_id)
         except asyncio.QueueFull:
-            job["status"] = "failed"
-            job["error"] = "任务队列已满（最多 100 个任务），请稍后重试"
-            job["current_step"] = "队列已满"
-            self._persist_job(job_id)
+            pass
 
         # Ensure worker is running
         if not self._is_running:

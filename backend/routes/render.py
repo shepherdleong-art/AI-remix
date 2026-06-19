@@ -177,7 +177,7 @@ async def get_render_status(job_id: str):
     job: Optional[dict] = render_queue.get_job(job_id)
 
     if not job:
-        return _build_error(ErrorCode.INTERNAL_ERROR, f"渲染任务不存在: {job_id}")
+        return _build_error(ErrorCode.NUMBER_NOT_CONSECUTIVE, f"渲染任务不存在: {job_id}")
 
     return _build_success(_job_to_response(job))
 
@@ -193,7 +193,7 @@ async def get_render_result(job_id: str):
     job: Optional[dict] = render_queue.get_job(job_id)
 
     if not job:
-        return _build_error(ErrorCode.INTERNAL_ERROR, f"渲染任务不存在: {job_id}")
+        return _build_error(ErrorCode.NUMBER_NOT_CONSECUTIVE, f"渲染任务不存在: {job_id}")
 
     if job["status"] != "completed":
         return _build_error(
@@ -295,7 +295,7 @@ async def get_thumbnail(job_id: str):
     job: Optional[dict] = render_queue.get_job(job_id)
 
     if not job:
-        return _build_error(ErrorCode.INTERNAL_ERROR, f"渲染任务不存在: {job_id}")
+        return _build_error(ErrorCode.NUMBER_NOT_CONSECUTIVE, f"渲染任务不存在: {job_id}")
 
     thumbnail: str = job.get("thumbnail", "")
     if not thumbnail:

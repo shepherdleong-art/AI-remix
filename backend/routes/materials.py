@@ -16,7 +16,6 @@ import shutil
 import subprocess
 import base64
 import tempfile
-import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -375,14 +374,8 @@ async def upload_material(file: UploadFile = File(...)):
     upload_dir = Path(TEMP_DIR) / "uploads"
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save to temp file with unique prefix to prevent collisions
     safe_name = file.filename.replace("\\", "_").replace("/", "_")
-    # Remove control characters and NUL bytes
-    safe_name = "".join(c for c in safe_name if c.isprintable() and c not in '\x00')
-    if not safe_name or safe_name.startswith("."):
-        safe_name = "uploaded_file"
-    unique_name = f"{uuid.uuid4().hex[:8]}_{safe_name}"
-    temp_path = upload_dir / unique_name
+    temp_path = upload_dir / safe_name
     try:
         with open(temp_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
