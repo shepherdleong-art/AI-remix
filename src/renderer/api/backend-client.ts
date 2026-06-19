@@ -81,7 +81,11 @@ export async function apiRequest<T = unknown>(
 
   // Fallback: direct HTTP fetch (development / browser mode)
   try {
-    const port: number = 18000; // Default dev port
+    // Try to discover port from global window var (set by start script), URL param, or default
+    const port: number =
+      (window as unknown as Record<string, number>).__BACKEND_PORT__ ||
+      parseInt(new URLSearchParams(window.location.search).get('backend_port') || '') ||
+      18000;
     const url: string = `http://127.0.0.1:${port}${endpoint}`;
 
     const controller = new AbortController();

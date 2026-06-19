@@ -269,15 +269,6 @@ async def start_analysis(request: dict):
     if not os.path.exists(file_path):
         return _build_error(40004, f"文件不存在: {file_path}")
 
-    # Check if an analysis is already running for this material
-    with _store_lock:
-        for existing_id, existing in _analysis_store.items():
-            if existing.material_id == material_id and existing.status == "processing":
-                return _build_success(
-                    {"analysis_id": existing_id},
-                    "该素材正在分析中",
-                )
-
     analysis_id: str = str(uuid.uuid4())
 
     # Create initial placeholder
@@ -290,10 +281,19 @@ async def start_analysis(request: dict):
         quality_score=0,
     )
 
+    # Hold lock for the entire check-and-insert to prevent races
     with _store_lock:
+        # Check if an analysis is already running for this material
+        for existing_id, existing in _analysis_store.items():
+            if existing.material_id == material_id and existing.status == "processing":
+                return _build_success(
+                    {"analysis_id": existing_id},
+                    "该素材正在分析中",
+                )
+
         _analysis_store[analysis_id] = placeholder
 
-    # Start background thread
+    # Start background thread (outside lock to avoid deadlock)
     thread = threading.Thread(
         target=_run_analysis_async,
         args=(material_id, file_path, analysis_id),
