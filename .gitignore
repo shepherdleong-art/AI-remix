@@ -30,6 +30,7 @@ __pycache__/
 
 # OS files
 .DS_Store
+._*
 Thumbs.db
 
 # Logs
