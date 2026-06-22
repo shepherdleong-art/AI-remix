@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Python virtual environment
+backend/venv/
+**/venv/
+
+# Build outputs
+dist/
+dist-electron/
+release/
+
+# FFmpeg binaries (too large for GitHub)
+ffmpeg-master-latest-win64-gpl/
+**/resources/ffmpeg/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE & tools
+.claude/
+.workbuddy/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+*.swp
+*.swo
+.vscode/
+.idea/
