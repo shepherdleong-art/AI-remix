@@ -8,6 +8,7 @@
  * - Sorting by various criteria
  */
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
   AnyMaterial,
   MaterialType,
@@ -136,21 +137,23 @@ function generateId(): string {
  * @remarks The store uses a Set for selectedIds for O(1) lookup.
  * All exported actions are stable references (Zustand default).
  */
-export const useMaterialsStore = create<MaterialsState>((set, get) => ({
-  // ─── Initial State ────────────────────────────────────
-  materials: [],
-  selectedIds: new Set<string>(),
-  filter: {
-    filterType: 'all',
-    filterStatus: 'all',
-    searchQuery: '',
-  },
-  sort: {
-    sortBy: 'date',
-    sortDirection: 'desc',
-  },
-  isImportDialogOpen: false,
-  viewMode: 'grid',
+export const useMaterialsStore = create<MaterialsState>()(
+  persist(
+    (set, get) => ({
+      // ─── Initial State ────────────────────────────────────
+      materials: [],
+      selectedIds: new Set<string>(),
+      filter: {
+        filterType: 'all',
+        filterStatus: 'all',
+        searchQuery: '',
+      },
+      sort: {
+        sortBy: 'date',
+        sortDirection: 'desc',
+      },
+      isImportDialogOpen: false,
+      viewMode: 'grid',
 
   // ─── CRUD Actions ─────────────────────────────────────
 
@@ -330,6 +333,16 @@ export const useMaterialsStore = create<MaterialsState>((set, get) => ({
 
     return filtered;
   },
-}));
+}),
+{
+  name: 'mashup-materials-store',
+  partialize: (state) => {
+    // Don't persist ephemeral UI state
+    const { selectedIds, isImportDialogOpen, ...rest } = state;
+    return rest;
+  },
+}
+)
+);
 
 export default useMaterialsStore;

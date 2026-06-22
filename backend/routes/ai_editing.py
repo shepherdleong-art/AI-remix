@@ -10,6 +10,7 @@ Endpoints:
 """
 import os
 import json
+import asyncio
 import logging
 import subprocess
 import hashlib
@@ -76,14 +77,14 @@ async def analyze_video_endpoint(req: dict):
     register_material_path(video_path)
 
     try:
-        # Detect scenes
-        scenes = detect_scenes(video_path)
+        # Detect scenes (offload to thread to avoid blocking event loop)
+        scenes = await asyncio.to_thread(detect_scenes, video_path)
         if not scenes:
             return _ok({"scenes": [], "descriptions": [], "frames": []})
 
-        # Extract frames
+        # Extract frames (offload to thread to avoid blocking event loop)
         frame_dir = os.path.join(TEMP_DIR, "ai_frames")
-        frame_paths = extract_scene_frames(video_path, scenes, frame_dir)
+        frame_paths = await asyncio.to_thread(extract_scene_frames, video_path, scenes, frame_dir)
 
         # AI vision analysis
         prompts = [
@@ -165,13 +166,13 @@ async def composite_endpoint(req: dict):
             audio_path = os.path.join(tts_dir, f"{output_name}_narration.mp3")
             await text_to_speech(script, voice, audio_path, api_key, speed)
 
-        audio_duration = get_audio_duration(audio_path)
+        audio_duration = await asyncio.to_thread(get_audio_duration, audio_path)
 
         # Composite with correct video_path + timestamps
         output_dir = os.path.join(TEMP_DIR, "outputs")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{output_name}.mp4")
-        composite_clip(segments, audio_path, output_path, target_width, target_height, subtitle_style)
+        await asyncio.to_thread(composite_clip, segments, audio_path, output_path, target_width, target_height, subtitle_style)
 
         return _ok({
             "output_path": output_path,
@@ -226,9 +227,9 @@ async def full_pipeline(req: dict):
                 continue
             # Register for preview serving
             register_material_path(vp)
-            scenes = detect_scenes(vp)
+            scenes = await asyncio.to_thread(detect_scenes, vp)
             frame_dir = os.path.join(TEMP_DIR, "ai_frames", os.path.basename(vp))
-            frame_paths = extract_scene_frames(vp, scenes, frame_dir)
+            frame_paths = await asyncio.to_thread(extract_scene_frames, vp, scenes, frame_dir)
             prompts = [f"时间点 {s['start']:.1f}s-{s['end']:.1f}s" for s in scenes]
             descriptions = await analyze_frames_batch(frame_paths, prompts, api_key)
 
@@ -279,8 +280,8 @@ async def full_pipeline(req: dict):
         output_dir = os.path.join(TEMP_DIR, "outputs")
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, f"{output_name}.mp4")
-        composite_clip(comp_segments, audio_path, output_path,
-                       target_width, target_height)
+        await asyncio.to_thread(composite_clip, comp_segments, audio_path, output_path,
+                                target_width, target_height)
 
         steps.append({
             "step": "composite",
@@ -341,7 +342,7 @@ async def generate_tts_endpoint(req: dict):
         os.makedirs(tts_dir, exist_ok=True)
         audio_path = os.path.join(tts_dir, f"tts_{hashlib.md5(script.encode()).hexdigest()[:12]}.mp3")
         await text_to_speech(script, voice, audio_path, api_key, speed)
-        duration = get_audio_duration(audio_path)
+        duration = await asyncio.to_thread(get_audio_duration, audio_path)
         return _ok({
             "audio_path": audio_path,
             "duration": duration,
@@ -401,7 +402,7 @@ async def preview_video(req: dict):
             if not os.path.exists(vp): continue
             out = os.path.join(TEMP_DIR, "previews", f"p_{i:03d}.mp4")
             os.makedirs(os.path.dirname(out), exist_ok=True)
-            subprocess.run([
+            await asyncio.to_thread(subprocess.run, [
                 _ffmpeg(), "-ss", str(st), "-i", vp, "-t", str(dur),
                 "-vf", f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1",
                 "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
@@ -417,7 +418,7 @@ async def preview_video(req: dict):
             for t in trimmed: f.write(f"file '{t}'\n")
 
         out_path = os.path.join(TEMP_DIR, "previews", f"preview_{hashlib.md5(str(segments).encode()).hexdigest()[:8]}.mp4")
-        subprocess.run([
+        await asyncio.to_thread(subprocess.run, [
             _ffmpeg(), "-f", "concat", "-safe", "0", "-i", concat_f,
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
             "-an", "-y", out_path,
@@ -510,6 +511,9 @@ def _is_safe_path(requested_path: str) -> bool:
     - Paths within TEMP_DIR (generated content)
     - Previously registered material paths (imported videos)
     - Both checks also require a supported media extension
+
+    Performs realpath resolution and verifies the resolved path is contained within
+    the allowed directories (not just prefix-matching on the string).
     """
     try:
         real_path = os.path.realpath(requested_path)
@@ -520,12 +524,15 @@ def _is_safe_path(requested_path: str) -> bool:
     if not _is_allowed_media_extension(real_path):
         return False
 
-    # Check TEMP_DIR subdirectories
-    temp_dir_real = os.path.realpath(TEMP_DIR)
-    if real_path.startswith(temp_dir_real + os.sep) or real_path == temp_dir_real:
+    # Check TEMP_DIR: resolve both and verify real_path is truly under TEMP_DIR
+    temp_dir_real = str(TEMP_DIR.resolve())
+    try:
+        Path(real_path).relative_to(temp_dir_real)
         return True
+    except ValueError:
+        pass  # Not under TEMP_DIR
 
-    # Check registered material paths
+    # Check registered material paths (exact match against set of resolved paths)
     if real_path in _registered_material_paths:
         return True
 
@@ -570,7 +577,7 @@ async def serve_thumbnail(path: str, t: float = 1.0):
         hash_name = hashlib.md5(f"{path}:{t}".encode()).hexdigest()[:12]
         out_path = os.path.join(thumb_dir, f"{hash_name}.jpg")
         if not os.path.exists(out_path):
-            subprocess.run([
+            await asyncio.to_thread(subprocess.run, [
                 _ffmpeg(),
                 "-ss", str(t),
                 "-i", path,

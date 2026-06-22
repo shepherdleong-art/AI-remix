@@ -11,6 +11,8 @@
 import os
 import sys
 import platform
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -89,8 +91,77 @@ def _get_ffmpeg_dir() -> Path:
 
 
 FFMPEG_DIR: Path = _get_ffmpeg_dir()
-FFMPEG_EXECUTABLE: str = str(FFMPEG_DIR / ("ffmpeg.exe" if platform.system() == "Windows" else "ffmpeg"))
-FFPROBE_EXECUTABLE: str = str(FFMPEG_DIR / ("ffprobe.exe" if platform.system() == "Windows" else "ffprobe"))
+
+
+def _node_platform_arch() -> tuple[str, str]:
+    """Return the platform/arch folder names used by ffprobe-static."""
+    system = platform.system()
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in {"arm64", "aarch64"} else "x64"
+
+    if system == "Darwin":
+        return "darwin", arch
+    if system == "Windows":
+        return "win32", arch
+    return "linux", arch
+
+
+def _resolve_executable(env_var: str, bundled: Path, node_module: Path, command: str) -> str:
+    """优先使用环境变量/项目本地二进制，最后回退到系统 PATH。"""
+    env_path = os.environ.get(env_var, "")
+    candidates = [
+        Path(env_path) if env_path else None,
+        bundled,
+        node_module,
+    ]
+
+    for candidate in candidates:
+        if candidate and candidate.is_file():
+            if platform.system() != "Windows":
+                try:
+                    candidate.chmod(candidate.stat().st_mode | 0o755)
+                except OSError:
+                    pass
+            candidate_path = str(candidate)
+            if _executable_works(candidate_path):
+                return candidate_path
+
+    system_path = shutil.which(command)
+    if system_path and _executable_works(system_path):
+        return system_path
+
+    return command
+
+
+def _executable_works(executable: str) -> bool:
+    try:
+        result = subprocess.run(
+            [executable, "-version"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+_node_platform, _node_arch = _node_platform_arch()
+_bin_suffix = ".exe" if platform.system() == "Windows" else ""
+_node_modules_dir = BASE_DIR.parent / "node_modules"
+
+FFMPEG_EXECUTABLE: str = _resolve_executable(
+    "FFMPEG_PATH",
+    FFMPEG_DIR / f"ffmpeg{_bin_suffix}",
+    _node_modules_dir / "ffmpeg-static" / f"ffmpeg{_bin_suffix}",
+    f"ffmpeg{_bin_suffix}",
+)
+
+FFPROBE_EXECUTABLE: str = _resolve_executable(
+    "FFPROBE_PATH",
+    FFMPEG_DIR / f"ffprobe{_bin_suffix}",
+    _node_modules_dir / "ffprobe-static" / "bin" / _node_platform / _node_arch / f"ffprobe{_bin_suffix}",
+    f"ffprobe{_bin_suffix}",
+)
 
 
 # ─── 渲染参数默认值 ────────────────────────────────────────
@@ -109,6 +180,8 @@ RENDER_DEFAULTS: dict = {
 }
 
 # 并行渲染数（自动 = CPU 核心数 - 1，至少为 1）
+# NOTE: Currently RenderQueue uses a single serial worker. This config value is reserved
+# for future parallel rendering support. Do not remove — it documents the intended limit.
 PARALLEL_RENDER_WORKERS: int = max(1, os.cpu_count() - 1 if os.cpu_count() else 2)
 
 

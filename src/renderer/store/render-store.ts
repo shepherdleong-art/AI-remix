@@ -84,6 +84,9 @@ export interface RenderState {
   /** Remove a job from the queue (only non-active jobs) */
   removeJob: (jobId: string) => Promise<void>;
 
+  /** Stop all active polling timers without clearing job data */
+  stopAllPolling: () => void;
+
   /** Clear all completed/cancelled/failed jobs */
   clearCompleted: () => Promise<void>;
 
@@ -383,6 +386,13 @@ export const useRenderStore = create<RenderState>((set, get) => ({
         selectedJobId: state.selectedJobId === jobId ? null : state.selectedJobId,
       };
     });
+  },
+
+  stopAllPolling: (): void => {
+    const timers = get()._pollTimers;
+    for (const jobId of Object.keys(timers)) {
+      get()._stopPolling(jobId);
+    }
   },
 
   clearCompleted: async (): Promise<void> => {

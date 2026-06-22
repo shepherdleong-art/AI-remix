@@ -30,6 +30,23 @@ from config import (
 )
 
 
+# ─── FFmpeg drawtext escaping ──────────────────────────────────
+
+def _escape_drawtext(text: str) -> str:
+    """Escape a string for use in FFmpeg drawtext filter text= parameter.
+
+    FFmpeg drawtext interprets these characters specially within filter arguments:
+    \\   — escape character
+    '    — string delimiter (we use single quotes)
+    :    — filter argument separator
+    %    — expansion prefix (e.g. %{pts})
+    { }  — expansion braces
+    """
+    for char in ['\\', "'", ':', '%', '{', '}']:
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
 # ─── Paths ────────────────────────────────────────────────────
 
 OUTPUT_DIR: Path = BASE_DIR / "data" / "output"
@@ -221,7 +238,7 @@ class FFmpegCommandBuilder:
         if watermark:
             cmd.extend([
                 "-vf",
-                f"drawtext=text='{watermark}':fontcolor=white@0.5:fontsize=24:"
+                f"drawtext=text='{_escape_drawtext(watermark)}':fontcolor=white@0.5:fontsize=24:"
                 f"x=w-tw-10:y=h-th-10",
             ])
 
@@ -291,7 +308,7 @@ class FFmpegCommandBuilder:
             # Text overlay
             to: Optional[Dict[str, Any]] = seg.get("text_overlay", seg.get("textOverlay"))
             if to and to.get("text"):
-                txt: str = to["text"].replace("'", "\\'").replace(":", "\\:")
+                txt: str = _escape_drawtext(to["text"])
                 font_size: int = int(to.get("font_size", to.get("fontSize", 32)))
                 color: str = to.get("color", "white")
                 pos: str = to.get("position", "bottom-center")
@@ -419,7 +436,7 @@ class FFmpegCommandBuilder:
                 "text_overlay", seg.get("textOverlay")
             )
             if text_overlay and text_overlay.get("text"):
-                txt: str = text_overlay["text"].replace("'", "\\'")
+                txt: str = _escape_drawtext(text_overlay["text"])
                 font_size: int = int(text_overlay.get("font_size", text_overlay.get("fontSize", 32)))
                 color: str = text_overlay.get("color", "white")
                 pos: str = text_overlay.get("position", "bottom-center")

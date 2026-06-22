@@ -48,6 +48,11 @@ def detect_scenes(
         _ffmpeg(), "-i", video_path, "-f", "null", "-"
     ]
     dur_result = subprocess.run(dur_cmd, capture_output=True, text=True, timeout=30)
+    if dur_result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to probe video duration: {video_path}\n"
+            f"stderr: {dur_result.stderr[:300]}"
+        )
     duration_line = dur_result.stderr
     total_duration = 0.0
     for line in duration_line.split("\n"):
@@ -68,7 +73,12 @@ def detect_scenes(
         "-f", "null", "-"
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Scene detection failed for: {video_path}\n"
+            f"stderr: {result.stderr[:300]}"
+        )
+
     # Parse scene change timestamps from stderr
     scene_times = [0.0]
     for line in result.stderr.split("\n"):
@@ -376,6 +386,11 @@ def get_audio_duration(audio_path: str) -> float:
 
     cmd = [_ffmpeg(), "-i", audio_path, "-f", "null", "-"]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Failed to probe audio duration: {audio_path}\n"
+            f"stderr: {result.stderr[:300]}"
+        )
 
     for line in result.stderr.split("\n"):
         if "Duration:" in line:

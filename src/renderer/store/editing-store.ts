@@ -2,6 +2,7 @@
  * Shared editing state between AI创作, 预览, and 导出 steps.
  */
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export interface TimelineSegment {
   segment_index: number;
@@ -82,23 +83,35 @@ const initialState = {
   running: false,
 };
 
-export const useEditingStore = create<EditingState>((set) => ({
-  ...initialState,
-  setApiKey: (apiKey) => set({ apiKey }),
-  setTimeline: (timeline) => set({ timeline }),
-  setScript: (script) => set({ script }),
-  setVoice: (voice) => set({ voice }),
-  setOutputPath: (outputPath) => set({ outputPath }),
-  setAudioDuration: (audioDuration) => set({ audioDuration }),
-  setAudioPath: (audioPath) => set({ audioPath }),
-  setSpeechSpeed: (speechSpeed) => set({ speechSpeed }),
-  setSubtitleFont: (subtitleFont) => set({ subtitleFont }),
-  setSubtitleColor: (subtitleColor) => set({ subtitleColor }),
-  setSubtitleSize: (subtitleSize) => set({ subtitleSize }),
-  setSubtitleStrokeColor: (subtitleStrokeColor) => set({ subtitleStrokeColor }),
-  setSubtitleStrokeWidth: (subtitleStrokeWidth) => set({ subtitleStrokeWidth }),
-  setSubtitleFontPath: (subtitleFontPath) => set({ subtitleFontPath }),
-  setSubtitleOverrides: (subtitleOverrides) => set({ subtitleOverrides }),
-  setRunning: (running) => set({ running }),
-  reset: () => set(initialState),
-}));
+export const useEditingStore = create<EditingState>()(
+  persist(
+    (set) => ({
+      ...initialState,
+      setApiKey: (apiKey) => set({ apiKey }),
+      setTimeline: (timeline) => set({ timeline }),
+      setScript: (script) => set({ script }),
+      setVoice: (voice) => set({ voice }),
+      setOutputPath: (outputPath) => set({ outputPath }),
+      setAudioDuration: (audioDuration) => set({ audioDuration }),
+      setAudioPath: (audioPath) => set({ audioPath }),
+      setSpeechSpeed: (speechSpeed) => set({ speechSpeed }),
+      setSubtitleFont: (subtitleFont) => set({ subtitleFont }),
+      setSubtitleColor: (subtitleColor) => set({ subtitleColor }),
+      setSubtitleSize: (subtitleSize) => set({ subtitleSize }),
+      setSubtitleStrokeColor: (subtitleStrokeColor) => set({ subtitleStrokeColor }),
+      setSubtitleStrokeWidth: (subtitleStrokeWidth) => set({ subtitleStrokeWidth }),
+      setSubtitleFontPath: (subtitleFontPath) => set({ subtitleFontPath }),
+      setSubtitleOverrides: (subtitleOverrides) => set({ subtitleOverrides }),
+      setRunning: (running) => set({ running }),
+      reset: () => set(initialState),
+    }),
+    {
+      name: 'mashup-editing-store',
+      partialize: (state) => {
+        // Don't persist ephemeral running state
+        const { running, ...rest } = state;
+        return rest;
+      },
+    }
+  )
+);

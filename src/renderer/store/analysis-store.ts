@@ -121,6 +121,9 @@ export interface AnalysisState {
   /** Get analysis result by material ID */
   getByMaterialId: (materialId: string) => AnalysisResult | undefined;
 
+  /** Stop all active polling timers without clearing results */
+  stopAllPolling: () => void;
+
   /** Clear all analysis results */
   clearResults: () => void;
 
@@ -415,6 +418,12 @@ export const useAnalysisStore = create<AnalysisState>((set, get) => {
 
     getByMaterialId: (materialId: string): AnalysisResult | undefined => {
       return get().analysisResults.get(materialId);
+    },
+
+    stopAllPolling: (): void => {
+      for (const materialId of get().activePolls) {
+        stopPolling(materialId);
+      }
     },
 
     clearResults: (): void => {

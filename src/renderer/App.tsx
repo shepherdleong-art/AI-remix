@@ -11,8 +11,13 @@ import {
   ThemeProvider,
   createTheme,
   CssBaseline,
+  Alert,
+  Snackbar,
 } from '@mui/material';
 import { useMaterialsStore } from '@/renderer/store/materials-store';
+import { useEditingStore } from '@/renderer/store/editing-store';
+import { useAnalysisStore } from '@/renderer/store/analysis-store';
+import { useRenderStore } from '@/renderer/store/render-store';
 import MaterialsManager from '@/renderer/components/materials/MaterialsManager';
 import AiScriptEditor from '@/renderer/components/analysis/AiScriptEditor';
 import TimelineEditor from '@/renderer/components/analysis/TimelineEditor';
@@ -58,15 +63,82 @@ const theme = createTheme({
  */
 const App: React.FC = () => {
   const [activeStep, setActiveStep] = React.useState<number>(0);
+  const [snackbarOpen, setSnackbarOpen] = React.useState<boolean>(false);
+  const [snackbarMessage, setSnackbarMessage] = React.useState<string>('');
+
+  // Cross-store state for validation
   const materials = useMaterialsStore((s) => s.materials);
+  const editingRunning = useEditingStore((s) => s.running);
+  const timeline = useEditingStore((s) => s.timeline);
+  const isBatchRunning = useAnalysisStore((s) => s.isBatchRunning);
+  const isRendering = useRenderStore((s) => s.isRendering);
+
+  // Global busy state — any long-running operation
+  const isBusy = editingRunning || isBatchRunning || isRendering;
+
+  /** Show a validation message to the user. */
+  const showWarning = (message: string): void => {
+    setSnackbarMessage(message);
+    setSnackbarOpen(true);
+  };
+
+  /**
+   * Validate whether the user can navigate to a given step.
+   * Returns true if navigation is allowed.
+   */
+  const canNavigateTo = (targetStep: number): boolean => {
+    // Always allow going backward
+    if (targetStep < activeStep) return true;
+
+    // Block navigation during long-running operations
+    if (isBusy && targetStep !== activeStep) {
+      showWarning('当前有任务正在运行，请等待完成后再切换步骤');
+      return false;
+    }
+
+    // Step 1 (AI创作): need at least 1 material imported
+    if (targetStep >= 1 && materials.length === 0) {
+      showWarning('请先导入至少一个素材文件');
+      return false;
+    }
+
+    // Step 3 (导出渲染): need a timeline
+    if (targetStep >= 3 && timeline.length === 0) {
+      showWarning('请先在 AI 创作步骤生成时间线');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleStepClick = (index: number): void => {
+    if (canNavigateTo(index)) {
+      setActiveStep(index);
+    }
+  };
 
   const handleNext = (): void => {
-    setActiveStep((prev: number) => Math.min(prev + 1, STEPS.length - 1));
+    const target = Math.min(activeStep + 1, STEPS.length - 1);
+    if (canNavigateTo(target)) {
+      setActiveStep(target);
+    }
   };
 
   const handleBack = (): void => {
     setActiveStep((prev: number) => Math.max(prev - 1, 0));
   };
+
+  // Cleanup polling timers on window unload
+  React.useEffect(() => {
+    const cleanup = (): void => {
+      useAnalysisStore.getState().stopAllPolling();
+      useRenderStore.getState().stopAllPolling();
+    };
+    window.addEventListener('beforeunload', cleanup);
+    return () => {
+      window.removeEventListener('beforeunload', cleanup);
+    };
+  }, []);
 
   return (
     <ThemeProvider theme={theme}>
@@ -87,7 +159,7 @@ const App: React.FC = () => {
           <Stepper activeStep={activeStep} alternativeLabel nonLinear>
             {STEPS.map((label: string, index: number) => (
               <Step key={label}>
-                <StepButton onClick={() => setActiveStep(index)}>
+                <StepButton onClick={() => handleStepClick(index)}>
                   {label}
                 </StepButton>
               </Step>
@@ -131,11 +203,28 @@ const App: React.FC = () => {
           <Button
             variant="contained"
             onClick={handleNext}
-            disabled={activeStep === STEPS.length - 1}
+            disabled={activeStep === STEPS.length - 1 || isBusy}
           >
             下一步
           </Button>
         </Box>
+
+        {/* Validation messages */}
+        <Snackbar
+          open={snackbarOpen}
+          autoHideDuration={4000}
+          onClose={() => setSnackbarOpen(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert
+            onClose={() => setSnackbarOpen(false)}
+            severity="warning"
+            variant="filled"
+            sx={{ width: '100%' }}
+          >
+            {snackbarMessage}
+          </Alert>
+        </Snackbar>
       </Container>
     </ThemeProvider>
   );

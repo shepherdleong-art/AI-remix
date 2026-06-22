@@ -8,7 +8,13 @@ import {
   PYTHON_HEARTBEAT_INTERVAL_MS,
   PYTHON_PORT_RANGE_MIN,
   PYTHON_PORT_RANGE_MAX,
+  PYTHON_MAX_RESTART_ATTEMPTS,
+  PYTHON_RESTART_BACKOFF_BASE_MS,
+  PYTHON_RESTART_BACKOFF_MAX_MS,
+  PYTHON_HEARTBEAT_FAIL_THRESHOLD,
 } from './constants';
+
+export type BackendStatus = 'starting' | 'running' | 'stopped' | 'reconnecting' | 'error';
 
 export interface PythonBridgeOptions {
   /** Path to the Python script to execute */
@@ -17,6 +23,8 @@ export interface PythonBridgeOptions {
   pythonExecutable?: string;
   /** Additional command-line arguments */
   args?: string[];
+  /** Callback invoked when backend status changes (for IPC notification to renderer) */
+  onStatusChange?: (status: BackendStatus, port: number | null) => void;
 }
 
 /**
@@ -28,6 +36,7 @@ export interface PythonBridgeOptions {
  * - Health check polling until backend is ready
  * - Graceful shutdown via SIGTERM
  * - Heartbeat monitoring
+ * - Auto-restart with exponential backoff on crash
  */
 export class PythonBridge {
   private scriptPath: string;
@@ -38,10 +47,27 @@ export class PythonBridge {
   private isRunning: boolean = false;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Auto-restart state
+  private restartAttempts: number = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private consecutiveHeartbeatFailures: number = 0;
+  private intentionalShutdown: boolean = false;
+  private onStatusChange: ((status: BackendStatus, port: number | null) => void) | null;
+
   constructor(options: PythonBridgeOptions) {
     this.scriptPath = options.scriptPath;
     this.pythonExecutable = options.pythonExecutable || PYTHON_EXECUTABLE;
     this.extraArgs = options.args || [];
+    this.onStatusChange = options.onStatusChange || null;
+  }
+
+  /**
+   * Notify listeners of a backend status change.
+   */
+  private _notifyStatus(status: BackendStatus): void {
+    if (this.onStatusChange) {
+      this.onStatusChange(status, this.port);
+    }
   }
 
   /**
@@ -53,6 +79,9 @@ export class PythonBridge {
       console.warn('[PythonBridge] Backend is already running');
       return this.port!;
     }
+
+    this.intentionalShutdown = false;
+    this._notifyStatus('starting');
 
     console.log('[PythonBridge] Starting Python backend...');
 
@@ -97,22 +126,37 @@ export class PythonBridge {
     this.process.on('error', (err: Error) => {
       console.error('[PythonBridge] Process error:', err.message);
       this.isRunning = false;
+      this._handleProcessExit();
     });
 
     this.process.on('exit', (code: number | null, signal: string | null) => {
       console.log(`[PythonBridge] Process exited with code=${code}, signal=${signal}`);
       this.isRunning = false;
       this.stopHeartbeat();
+      if (!this.intentionalShutdown) {
+        this._handleProcessExit();
+      }
     });
 
     this.isRunning = true;
 
     // Wait for the backend to be healthy
-    await this.waitForHealthy();
+    try {
+      await this.waitForHealthy();
+    } catch (err) {
+      this.isRunning = false;
+      this._notifyStatus('error');
+      throw err;
+    }
+
+    // Reset restart counter on successful start
+    this.restartAttempts = 0;
+    this.consecutiveHeartbeatFailures = 0;
 
     // Start heartbeat once healthy
     this.startHeartbeat();
 
+    this._notifyStatus('running');
     console.log(`[PythonBridge] Backend is ready on port ${this.port}`);
     return this.port!;
   }
@@ -122,8 +166,17 @@ export class PythonBridge {
    * Sends SIGTERM first, then SIGKILL after a timeout.
    */
   async stop(): Promise<void> {
+    this.intentionalShutdown = true;
+
+    // Cancel any pending restart
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+
     if (!this.process || !this.isRunning) {
       console.log('[PythonBridge] No process to stop');
+      this._notifyStatus('stopped');
       return;
     }
 
@@ -144,6 +197,7 @@ export class PythonBridge {
         this.isRunning = false;
         this.process = null;
         this.port = null;
+        this._notifyStatus('stopped');
         resolve();
       });
 
@@ -174,6 +228,62 @@ export class PythonBridge {
   getIsRunning(): boolean {
     return this.isRunning;
   }
+
+  // ─── Auto-restart logic ─────────────────────────────────
+
+  /**
+   * Handle unexpected process exit — schedule a restart with backoff.
+   */
+  private _handleProcessExit(): void {
+    // Clean up old process reference
+    this.process = null;
+
+    if (this.intentionalShutdown) {
+      return;
+    }
+
+    if (this.restartAttempts >= PYTHON_MAX_RESTART_ATTEMPTS) {
+      console.error(
+        `[PythonBridge] Max restart attempts (${PYTHON_MAX_RESTART_ATTEMPTS}) reached. Giving up.`
+      );
+      this._notifyStatus('error');
+      this.port = null;
+      return;
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s, ... capped
+    const delay = Math.min(
+      PYTHON_RESTART_BACKOFF_BASE_MS * Math.pow(2, this.restartAttempts),
+      PYTHON_RESTART_BACKOFF_MAX_MS
+    );
+
+    this.restartAttempts++;
+    this.port = null;
+    this._notifyStatus('reconnecting');
+
+    console.log(
+      `[PythonBridge] Scheduling restart attempt ${this.restartAttempts}/${PYTHON_MAX_RESTART_ATTEMPTS} in ${delay}ms`
+    );
+
+    this.restartTimer = setTimeout(async () => {
+      this.restartTimer = null;
+      try {
+        await this.start();
+        console.log(
+          `[PythonBridge] Restart attempt ${this.restartAttempts} succeeded on port ${this.port}`
+        );
+      } catch (err) {
+        console.error(
+          `[PythonBridge] Restart attempt ${this.restartAttempts} failed:`,
+          err
+        );
+        // _handleProcessExit will be called again from the error/exit handlers
+        // when the failed start's process errors/exits
+      }
+    }, delay);
+  }
+
+  // ─── Health check ───────────────────────────────────────
 
   /**
    * Perform a health check request to the backend.
@@ -240,6 +350,7 @@ export class PythonBridge {
 
   /**
    * Start periodic heartbeat checks.
+   * Consecutive failures above threshold trigger a restart.
    */
   private startHeartbeat(): void {
     this.stopHeartbeat();
@@ -247,7 +358,27 @@ export class PythonBridge {
       if (!this.isRunning) return;
       const healthy: boolean = await this.healthCheck();
       if (!healthy) {
-        console.warn('[PythonBridge] Heartbeat check failed');
+        this.consecutiveHeartbeatFailures++;
+        console.warn(
+          `[PythonBridge] Heartbeat check failed (${this.consecutiveHeartbeatFailures}/${PYTHON_HEARTBEAT_FAIL_THRESHOLD})`
+        );
+        if (this.consecutiveHeartbeatFailures >= PYTHON_HEARTBEAT_FAIL_THRESHOLD) {
+          console.warn('[PythonBridge] Heartbeat failure threshold reached, restarting...');
+          this.stopHeartbeat();
+          this.isRunning = false;
+          // Kill the (presumably hung) process if it still exists
+          if (this.process && !this.process.killed) {
+            this.process.kill('SIGKILL');
+            this.process = null;
+          }
+          this._handleProcessExit();
+        }
+      } else {
+        // Reset on success
+        if (this.consecutiveHeartbeatFailures > 0) {
+          console.log('[PythonBridge] Heartbeat recovered');
+        }
+        this.consecutiveHeartbeatFailures = 0;
       }
     }, PYTHON_HEARTBEAT_INTERVAL_MS) as unknown as ReturnType<typeof setInterval>;
   }

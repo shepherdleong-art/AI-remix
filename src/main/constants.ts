@@ -1,4 +1,6 @@
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 
 // Application-wide constants
 
@@ -19,6 +21,33 @@ export function setPythonPort(port: number): void {
  */
 function getAppRoot(): string {
   return process.cwd();
+}
+
+function firstExistingPath(paths: string[]): string | null {
+  for (const candidate of paths) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolvePythonExecutable(): string {
+  const appRoot = getAppRoot();
+  const envPython = process.env.MASHUP_PYTHON || process.env.PYTHON_EXECUTABLE;
+  const candidates: string[] = [
+    envPython || '',
+    path.join(appRoot, 'backend', 'venv', 'bin', 'python'),
+    path.join(appRoot, 'backend', 'venv', 'bin', 'python3'),
+    path.join(appRoot, 'backend', 'venv', 'Scripts', 'python.exe'),
+  ];
+
+  const existing = firstExistingPath(candidates);
+  if (existing) {
+    return existing;
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3';
 }
 
 // Renderer entry point (production build output from Vite)
@@ -43,8 +72,14 @@ export const PYTHON_HEALTH_CHECK_INTERVAL_MS: number = 500;
 export const PYTHON_HEALTH_CHECK_TIMEOUT_MS: number = 30000;
 export const PYTHON_HEARTBEAT_INTERVAL_MS: number = 10000;
 
+// Auto-restart configuration
+export const PYTHON_MAX_RESTART_ATTEMPTS: number = 5;
+export const PYTHON_RESTART_BACKOFF_BASE_MS: number = 1000;  // 1s → 2s → 4s → 8s → 16s
+export const PYTHON_RESTART_BACKOFF_MAX_MS: number = 30000;   // cap at 30s
+export const PYTHON_HEARTBEAT_FAIL_THRESHOLD: number = 3;     // consecutive failures → restart
+
 // Python executable options
-export const PYTHON_EXECUTABLE: string = 'C:\\Users\\11833\\.workbuddy\\binaries\\python\\versions\\3.13.12\\python.exe';
+export const PYTHON_EXECUTABLE: string = resolvePythonExecutable();
 
 // Window configuration
 export const MAIN_WINDOW_CONFIG = {
@@ -65,6 +100,7 @@ export const IPC_CHANNELS = {
   APP_GET_PLATFORM: 'app:get-platform',
   BACKEND_REQUEST: 'backend:request',
   APP_CLEAN_TEMP: 'app:clean-temp',
+  BACKEND_STATUS_CHANGED: 'backend:status-changed',
 } as const;
 
 // Platform info
@@ -73,6 +109,4 @@ export const IS_WINDOWS: boolean = process.platform === 'win32';
 export const IS_MAC: boolean = process.platform === 'darwin';
 export const IS_LINUX: boolean = process.platform === 'linux';
 
-// Temp directory (use os.tmpdir() to avoid electron module dependency)
-import os from 'os';
 export const TEMP_DIR: string = path.join(os.tmpdir(), 'short-video-mashup');

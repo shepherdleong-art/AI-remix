@@ -15,11 +15,12 @@ Endpoints:
 import uuid
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
-from config import ANALYSIS_SCENE_THRESHOLD, ErrorCode
+from config import ANALYSIS_SCENE_THRESHOLD, ANALYSIS_MAX_CONCURRENT, ErrorCode
 from services.analyzer import (
     AnalysisEngine,
     AnalysisOutput,
@@ -34,11 +35,17 @@ router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 # Maps analysis_id → AnalysisOutput
 _analysis_store: dict[str, AnalysisOutput] = {}
 
-# Maps analysis_id → threading.Thread
-_analysis_threads: dict[str, threading.Thread] = {}
+# Maps analysis_id → Future (from ThreadPoolExecutor)
+_analysis_futures: dict[str, Future] = {}
 
 # Lock for thread-safe store access
 _store_lock: threading.Lock = threading.Lock()
+
+# Bounded thread pool — limit concurrent analysis threads to avoid CPU exhaustion
+_analysis_executor: ThreadPoolExecutor = ThreadPoolExecutor(
+    max_workers=ANALYSIS_MAX_CONCURRENT,
+    thread_name_prefix="analysis",
+)
 
 
 def _build_success(data=None, message: str = "success") -> dict:
@@ -293,16 +300,16 @@ async def start_analysis(request: dict):
 
         _analysis_store[analysis_id] = placeholder
 
-    # Start background thread (outside lock to avoid deadlock)
-    thread = threading.Thread(
-        target=_run_analysis_async,
-        args=(material_id, file_path, analysis_id),
-        daemon=True,
+    # Submit to bounded thread pool (outside lock to avoid deadlock)
+    future = _analysis_executor.submit(
+        _run_analysis_async,
+        material_id,
+        file_path,
+        analysis_id,
     )
-    thread.start()
 
     with _store_lock:
-        _analysis_threads[analysis_id] = thread
+        _analysis_futures[analysis_id] = future
 
     return _build_success({"analysis_id": analysis_id})
 
@@ -412,15 +419,15 @@ async def batch_analysis(request: dict):
         with _store_lock:
             _analysis_store[analysis_id] = placeholder
 
-        thread = threading.Thread(
-            target=_run_analysis_async,
-            args=(material_id, file_path, analysis_id),
-            daemon=True,
+        future = _analysis_executor.submit(
+            _run_analysis_async,
+            material_id,
+            file_path,
+            analysis_id,
         )
-        thread.start()
 
         with _store_lock:
-            _analysis_threads[analysis_id] = thread
+            _analysis_futures[analysis_id] = future
 
         analysis_ids.append(analysis_id)
 

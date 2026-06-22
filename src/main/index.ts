@@ -1,16 +1,26 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron';
 import { registerIpcHandlers } from './ipc-handlers';
-import { PythonBridge } from './python-bridge';
+import { PythonBridge, BackendStatus } from './python-bridge';
 import {
   MAIN_WINDOW_CONFIG,
   PRELOAD_PATH,
   RENDERER_ENTRY,
   PYTHON_BACKEND_PATH,
+  IPC_CHANNELS,
   setPythonPort,
 } from './constants';
 
 let mainWindow: BrowserWindow | null = null;
 let pythonBridge: PythonBridge | null = null;
+
+function notifyRenderer(status: BackendStatus, port: number | null): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC_CHANNELS.BACKEND_STATUS_CHANGED, {
+      status,
+      port,
+    });
+  }
+}
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -48,22 +58,34 @@ function createMainWindow(): BrowserWindow {
 async function startPythonBackend(): Promise<void> {
   pythonBridge = new PythonBridge({
     scriptPath: PYTHON_BACKEND_PATH,
+    onStatusChange: (status: BackendStatus, port: number | null) => {
+      if (status === 'running' && port) {
+        setPythonPort(port);
+        // Ensure the IPC handler is registered (may need re-registration after restart)
+        try {
+          ipcMain.removeHandler('app:get-python-port');
+        } catch {
+          // Handler may not exist yet
+        }
+        ipcMain.handle('app:get-python-port', () => {
+          return port;
+        });
+      }
+      notifyRenderer(status, port);
+    },
   });
 
   try {
     const port: number = await pythonBridge.start();
     console.log(`[Main] Python backend started on port ${port}`);
 
-    // Store port in shared state for ipc-handlers to use
+    // Port is already synced and IPC handler registered via onStatusChange callback.
+    // Additional explicit set here as a safety net.
     setPythonPort(port);
-
-    // Also provide an IPC channel for the renderer to query the port directly
-    ipcMain.handle('app:get-python-port', () => {
-      return port;
-    });
   } catch (error) {
     console.error('[Main] Failed to start Python backend:', error);
-    // App can still open; backend-dependent features will show errors
+    // App can still open; the renderer will be notified via onStatusChange('error')
+    notifyRenderer('error', null);
   }
 }
 
@@ -78,11 +100,11 @@ app.whenReady().then(async () => {
   // Register IPC handlers (must be before any invoke calls)
   registerIpcHandlers();
 
+  // Create main window first so renderer can receive status updates
+  mainWindow = createMainWindow();
+
   // Start Python backend
   await startPythonBackend();
-
-  // Create main window
-  mainWindow = createMainWindow();
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
