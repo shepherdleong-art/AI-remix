@@ -25,6 +25,8 @@ from enum import Enum
 
 import numpy as np
 
+from config import FFMPEG_EXECUTABLE
+
 # ─── Optional OpenCV import ───────────────────────────────────
 
 try:
@@ -246,7 +248,7 @@ class VideoReader:
         os.close(tmp_fd)
         try:
             cmd: list[str] = [
-                "ffmpeg", "-ss", str(time_sec),
+                FFMPEG_EXECUTABLE, "-ss", str(time_sec),
                 "-i", self.file_path,
                 "-vframes", "1",
                 "-q:v", "5",
