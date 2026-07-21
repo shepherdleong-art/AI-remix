@@ -1,0 +1,182 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── CSS Variables (theme-aware via data-fcp-theme on <html>) ── */
+:root,
+[data-fcp-theme='light'] {
+  --fcp-scrollbar: rgba(0, 0, 0, 0.2);
+  --fcp-scrollbar-hover: rgba(0, 0, 0, 0.35);
+  --fcp-selection: #1976d2;
+  --fcp-focus: #1976d2;
+  --fcp-skeleton-base: rgba(0, 0, 0, 0.06);
+  --fcp-skeleton-shine: rgba(0, 0, 0, 0.12);
+  --fcp-cardbar: rgba(255, 255, 255, 0.85);
+}
+
+[data-fcp-theme='dark'] {
+  --fcp-scrollbar: rgba(255, 255, 255, 0.22);
+  --fcp-scrollbar-hover: rgba(255, 255, 255, 0.36);
+  --fcp-selection: #2dd4bf;
+  --fcp-focus: #2dd4bf;
+  --fcp-skeleton-base: rgba(255, 255, 255, 0.08);
+  --fcp-skeleton-shine: rgba(255, 255, 255, 0.18);
+  --fcp-cardbar: rgba(18, 18, 18, 0.82);
+}
+
+/* ─── Global Reset ──────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB',
+    'Noto Sans SC', system-ui, sans-serif;
+  color: #1d1d1f;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+  /* Smooth theme transition (B-level micro-interaction) */
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Scrollbar Styling (theme-aware) ───────────────────── */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--fcp-scrollbar);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--fcp-scrollbar-hover);
+}
+
+/* ─── Selection ─────────────────────────────────────────── */
+::selection {
+  background-color: var(--fcp-selection);
+  color: #ffffff;
+}
+
+[data-fcp-theme='dark'] ::selection {
+  color: #062b27;
+}
+
+/* ─── Focus Visible ─────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--fcp-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Smooth theme switch for MUI surfaces ─────────────── */
+.MuiPaper-root {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* ─── Utility Classes ───────────────────────────────────── */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Animation Keyframes ───────────────────────────────── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ─── Skeleton / Empty state (B8) ───────────────────────── */
+.fcp-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--fcp-skeleton-base) 25%,
+    var(--fcp-skeleton-shine) 37%,
+    var(--fcp-skeleton-base) 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 8px;
+}
+
+.fcp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 16px;
+  color: #6e6e73;
+  text-align: center;
+}

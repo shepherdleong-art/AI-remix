@@ -1,0 +1,50 @@
+classDiagram
+    class Assignment {
+        +int segment_index
+        +str video_path
+        +float start_time
+        +float duration
+        +float source_duration
+        +int used_scene_index
+        +str reason
+        +float snapped_beat
+        +str segment_text
+    }
+    class SceneCandidate {
+        +int scene_index
+        +str video_path
+        +float start
+        +float end
+        +float duration
+        +float score
+    }
+    class MatchSolver {
+        +float red_line
+        +float coverage_penalty
+        +float candidate_window
+        +solve(seg_durations, scenes, score_matrix) Assignment[]
+        -_greedy_assign() Assignment[]
+        -_apply_coverage() void
+        -_snap_beats(beats) void
+        -_validate_invariants() bool
+    }
+    class SceneCache {
+        +str cache_path
+        +get(video_path, mtime, frame_index, prompt) str
+        +put(video_path, mtime, frame_index, prompt, desc) void
+        -_key(...) str
+    }
+    class BeatDetector {
+        +detect(audio_path) list~float~
+        -_silencedetect(audio_path) list~float~
+        -_uniform_fallback(n) list~float~
+    }
+    class MatchService {
+        +match_scenes_audio_first(segments, seg_durations, scenes, api_key, beat_points) dict
+        -_llm_score_matrix(segments, scenes, api_key) list~list~float~~
+    }
+    MatchSolver ..> SceneCandidate : consumes
+    MatchSolver ..> Assignment : produces
+    MatchService ..> MatchSolver : uses
+    MatchService ..> BeatDetector : optional
+    MatchService ..> SceneCache : optional(analysis)

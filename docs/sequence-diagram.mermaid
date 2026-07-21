@@ -1,0 +1,41 @@
+sequenceDiagram
+    participant FE as 前端 AiScriptEditor
+    participant S as /analyze-script
+    participant V as /analyze-video(接缓存)
+    participant T as /split-tts(前置)
+    participant B as /detect-beats(可选)
+    participant M as /match-scenes-v2
+    participant LLM as LLM API
+    participant Sol as MatchSolver
+    participant C as /composite
+
+    FE->>S: POST {script, api_key}
+    S-->>FE: segments[]  (index,text,keywords)
+
+    par 并发：TTS 前置 + 视频分析
+        FE->>T: POST {segments(含text)}
+        T->>T: 逐句 text_to_speech + get_audio_duration
+        T-->>FE: audio_path, total_duration(D), seg_durations[]
+        FE->>V: POST {file_path(逐素材)}
+        V->>V: 命中 scene_cache? 跳过vision : analyze_frames_batch
+        V-->>FE: scenes[] (description,video_path,start,end,duration)
+    end
+
+    FE->>B: POST {audio_path}  (可选)
+    B-->>FE: beats[]  (silencedetect 或均匀回退)
+
+    FE->>M: POST {segments, seg_durations, scenes, beat_points?}
+    M->>LLM: 批量语义打分 → 矩阵 score[n][m]
+    LLM-->>M: score_matrix
+    M->>Sol: solve(seg_durations, scenes, score_matrix, beats?)
+    Sol->>Sol: 1)贪心分配(硬约束:可用长度≥句时长)
+    Sol->>Sol: 2)覆盖惩罚(同一video使用次数)
+    Sol->>Sol: 3)节拍吸附(±0.2s,Σ不变)
+    Sol->>Sol: 4)不变量校验(Σ==D, 边界)
+    Sol-->>M: timeline[] + debug
+    M-->>FE: timeline + debug
+
+    FE->>C: POST {segments(timeline), script, audio_path(existing)}
+    C->>C: 复用 existing_audio_path，跳过 text_to_speech
+    C->>C: composite_clip → final.mp4 (tpad防冻结)
+    C-->>FE: final.mp4 + audio_duration

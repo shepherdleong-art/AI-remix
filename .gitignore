@@ -1,0 +1,44 @@
+# ─── 依赖与构建产物 ───
+node_modules/
+dist/
+dist-electron/
+
+# ─── 大二进制（超 GitHub 100MB 限制，换机需手动拷贝）───
+resources/ffmpeg/
+# BGM 音乐库（26MB 二进制资产，换机手动拷贝到 music/）
+music/
+
+# ─── 后端运行产物 ───
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/data/output/
+backend/data/renders/
+backend/__pycache__/
+
+# ─── QA/验证产物（一次性脚本输出）───
+.cover_aspect_qa/
+.cover_audit_test/
+.cover_autofit_test/
+.cover_wysiwyg_test/
+.exp_fix_art/
+.k_factor_verify/
+.p2_thumb_test/
+.p2_trim_gate/
+.qa_stroke_cover_art/
+.repro_italic_art/
+.verify_fix_art/
+out.json
+
+# ─── 日志与系统垃圾 ───
+*.log
+nul
+Thumbs.db
+.DS_Store
+
+# ─── 运行时缓存（随分析生成，勿入库）───
+backend/data/analysis_cache/
+backend/data/batches/
+
+# ─── 工具/代理工作记忆（非项目源码）───
+.workbuddy/

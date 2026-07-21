@@ -1,0 +1,250 @@
+.............................F............................F.....FFFF.... [ 64%]
+..............................F....s....                                 [100%]
+================================== FAILURES ===================================
+____________ test_b_drawtext_x_pure_centered_and_shear_on_overlay _____________
+
+    def test_b_drawtext_x_pure_centered_and_shear_on_overlay():
+        src = open(VS, encoding="utf-8").read()
+        # 1) 无 COVER_TEXT_W_BIAS_K 残留
+        assert "COVER_TEXT_W_BIAS_K" not in src, "COVER_TEXT_W_BIAS_K 常量未彻底删除"
+        assert "K*text_w" not in src and "text_w*" not in src, "仍存在 text_w 偏差项"
+        # 2) drawtext x 使用 w*tpx/100 + max_shear - text_w/2
+        fc = _build_cover_filter_complex(
+            [("测", 35, 35, 120, "white", "black", 3, 0.28)], 1440, 1920, FONT_ESC)
+        assert "max_shear" in src, "max_shear 变量不存在 (layer 加宽逻辑缺失)"
+        assert "shear_drift" in src, "shear_drift 变量不存在"
+        # overlay 使用 layer_ox - shear_drift 进行剪切补偿
+        assert "layer_ox" in fc or "overlay=x=" in fc, "filter complex 缺少 overlay"
+        # 3) overlay x 含 shear 补偿 (wider-layer 方案)
+        assert "overlay=x=" in fc, "italic overlay 存在"
+        # 4) 后端字段透传未变
+        for fld in ('title_size', 'sub_size', 'title_color', 'sub_color',
+                    'title_stroke_color', 'title_stroke_width',
+                    'sub_stroke_color', 'sub_stroke_width',
+                    'title_italic', 'sub_italic', 'title_x', 'title_y', 'sub_x', 'sub_y'):
+            assert f'.get("{fld}"' in src, f"render_cover 未读取字段 {fld}"
+        # 5) 前端缩放公式未改 (字幕 ×width/360; 封面 ×COVER_SCALE*0.5)
+        ec = open(EXPORT_CONFIRM, encoding="utf-8").read()
+>       assert "size: Math.round(subtitleSize * resolution.width / 360)" in ec
+E       AssertionError: assert 'size: Math.round(subtitleSize * resolution.width / 360)' in '/**\n * ExportConfirm — Step 4: Export & Render.\n *\n * Uses the AI-generated timeline from editing-store instead of...   您的浏览器不支持音频播放\n          </audio>\n        </Box>\n      )}\n    </Box>\n  );\n};\n\nexport default ExportConfirm;\n'
+
+tests\test_cover_subtitle_audit.py:329: AssertionError
+_______________________ test_bug2_exportconfirm_scaling _______________________
+
+    def test_bug2_exportconfirm_scaling():
+        src = open(EXPORT_CONFIRM, encoding="utf-8").read()
+>       assert "size: Math.round(subtitleSize * resolution.width / 360)" in src, \
+            "subtitle_style.size 未用 resolution.width/360 缩放"
+E       AssertionError: subtitle_style.size 未用 resolution.width/360 缩放
+E       assert 'size: Math.round(subtitleSize * resolution.width / 360)' in '/**\n * ExportConfirm — Step 4: Export & Render.\n *\n * Uses the AI-generated timeline from editing-store instead of...   您的浏览器不支持音频播放\n          </audio>\n        </Box>\n      )}\n    </Box>\n  );\n};\n\nexport default ExportConfirm;\n'
+
+tests\test_cover_subtitle_stroke_regression.py:264: AssertionError
+_ test_fix_a_shear_compensation[\u4e3b\u6807\u9898-35-\u4eca\u65e5\u70ed\u70b9\u901f\u89c8] _
+
+label = '主标题', tpy = 35, text = '今日热点速览'
+
+    @pytest.mark.parametrize("label,tpy,text", [
+        ("主标题", 35, "今日热点速览"),
+        ("副标题", 55, "精彩内容推荐"),
+        ("测", 35, "测"),
+    ])
+    def test_fix_a_shear_compensation(label, tpy, text):
+        bg = _gen_bg(1440, 1920)
+        off_png = _render(text, "", _base(title=text, title_y=tpy, title_italic=False), 1440, 1920, bg)
+        on_png = _render(text, "", _base(title=text, title_y=tpy, title_italic=True), 1440, 1920, bg)
+        cx_off, cy_off, n_off = _filled_centroid(off_png)
+        cx_on, cy_on, n_on = _filled_centroid(on_png)
+        assert n_off > 100 and n_on > 100, "文本像素过少, 渲染可能失败"
+        delta = (cx_on - cx_off) * 100
+        # 验收: |italic_on_x - italic_off_x| < 2%
+        assert abs(delta) < 2.0, f"{label}: shear 补偿后 centroid X delta={delta:+.3f}% 超过 2%"
+        # Y 质心不受 shear 影响, 应≈设定 tpy
+        assert abs(cy_on - tpy / 100) < 0.005, f"{label}: Y 质心 {cy_on*100:.3f}% 偏离设定 {tpy}%"
+        # 非 italic 路径: x 表达式为纯居中 w*tpx/100-text_w/2, 不含任何偏差补偿项/尾部带符号数字
+        # (Path B: 不修正 text_w 度量偏差, 导出与预览保持同一 text_w 居中位置, 即 WYSIWYG)
+        fc = _build_cover_filter_complex([(text, 50, tpy, 120, "white", "black", 3, 0.0)], 1440, 1920, FONT_ESC)
+>       assert re.search(r"x=w\*50/100-text_w/2(?![\+\-])", fc) is not None
+E       assert None is not None
+E        +  where None = <function search at 0x0000029DEBE8E8E0>('x=w\\*50/100-text_w/2(?![\\+\\-])', "[0:v]format=rgba[base];color=c=black@0:s=1980x1920:r=25,format=rgba,drawtext=text='今日热点速览':fontfile='C\\:/Windows/Fon...t_w/2:y=h*35/100-th/2,shear=shx=0.0:fillcolor=0x00000000[layer0];[base][layer0]overlay=x=-270.0000:y=0:shortest=1[out]")
+E        +    where <function search at 0x0000029DEBE8E8E0> = re.search
+
+tests\test_cover_wysiwyg_regression.py:124: AssertionError
+_ test_fix_a_shear_compensation[\u526f\u6807\u9898-55-\u7cbe\u5f69\u5185\u5bb9\u63a8\u8350] _
+
+label = '副标题', tpy = 55, text = '精彩内容推荐'
+
+    @pytest.mark.parametrize("label,tpy,text", [
+        ("主标题", 35, "今日热点速览"),
+        ("副标题", 55, "精彩内容推荐"),
+        ("测", 35, "测"),
+    ])
+    def test_fix_a_shear_compensation(label, tpy, text):
+        bg = _gen_bg(1440, 1920)
+        off_png = _render(text, "", _base(title=text, title_y=tpy, title_italic=False), 1440, 1920, bg)
+        on_png = _render(text, "", _base(title=text, title_y=tpy, title_italic=True), 1440, 1920, bg)
+        cx_off, cy_off, n_off = _filled_centroid(off_png)
+        cx_on, cy_on, n_on = _filled_centroid(on_png)
+        assert n_off > 100 and n_on > 100, "文本像素过少, 渲染可能失败"
+        delta = (cx_on - cx_off) * 100
+        # 验收: |italic_on_x - italic_off_x| < 2%
+        assert abs(delta) < 2.0, f"{label}: shear 补偿后 centroid X delta={delta:+.3f}% 超过 2%"
+        # Y 质心不受 shear 影响, 应≈设定 tpy
+        assert abs(cy_on - tpy / 100) < 0.005, f"{label}: Y 质心 {cy_on*100:.3f}% 偏离设定 {tpy}%"
+        # 非 italic 路径: x 表达式为纯居中 w*tpx/100-text_w/2, 不含任何偏差补偿项/尾部带符号数字
+        # (Path B: 不修正 text_w 度量偏差, 导出与预览保持同一 text_w 居中位置, 即 WYSIWYG)
+        fc = _build_cover_filter_complex([(text, 50, tpy, 120, "white", "black", 3, 0.0)], 1440, 1920, FONT_ESC)
+>       assert re.search(r"x=w\*50/100-text_w/2(?![\+\-])", fc) is not None
+E       assert None is not None
+E        +  where None = <function search at 0x0000029DEBE8E8E0>('x=w\\*50/100-text_w/2(?![\\+\\-])', "[0:v]format=rgba[base];color=c=black@0:s=1980x1920:r=25,format=rgba,drawtext=text='精彩内容推荐':fontfile='C\\:/Windows/Fon...t_w/2:y=h*55/100-th/2,shear=shx=0.0:fillcolor=0x00000000[layer0];[base][layer0]overlay=x=-270.0000:y=0:shortest=1[out]")
+E        +    where <function search at 0x0000029DEBE8E8E0> = re.search
+
+tests\test_cover_wysiwyg_regression.py:124: AssertionError
+_______________ test_fix_a_shear_compensation[\u6d4b-35-\u6d4b] _______________
+
+label = '测', tpy = 35, text = '测'
+
+    @pytest.mark.parametrize("label,tpy,text", [
+        ("主标题", 35, "今日热点速览"),
+        ("副标题", 55, "精彩内容推荐"),
+        ("测", 35, "测"),
+    ])
+    def test_fix_a_shear_compensation(label, tpy, text):
+        bg = _gen_bg(1440, 1920)
+        off_png = _render(text, "", _base(title=text, title_y=tpy, title_italic=False), 1440, 1920, bg)
+        on_png = _render(text, "", _base(title=text, title_y=tpy, title_italic=True), 1440, 1920, bg)
+        cx_off, cy_off, n_off = _filled_centroid(off_png)
+        cx_on, cy_on, n_on = _filled_centroid(on_png)
+        assert n_off > 100 and n_on > 100, "文本像素过少, 渲染可能失败"
+        delta = (cx_on - cx_off) * 100
+        # 验收: |italic_on_x - italic_off_x| < 2%
+        assert abs(delta) < 2.0, f"{label}: shear 补偿后 centroid X delta={delta:+.3f}% 超过 2%"
+        # Y 质心不受 shear 影响, 应≈设定 tpy
+        assert abs(cy_on - tpy / 100) < 0.005, f"{label}: Y 质心 {cy_on*100:.3f}% 偏离设定 {tpy}%"
+        # 非 italic 路径: x 表达式为纯居中 w*tpx/100-text_w/2, 不含任何偏差补偿项/尾部带符号数字
+        # (Path B: 不修正 text_w 度量偏差, 导出与预览保持同一 text_w 居中位置, 即 WYSIWYG)
+        fc = _build_cover_filter_complex([(text, 50, tpy, 120, "white", "black", 3, 0.0)], 1440, 1920, FONT_ESC)
+>       assert re.search(r"x=w\*50/100-text_w/2(?![\+\-])", fc) is not None
+E       assert None is not None
+E        +  where None = <function search at 0x0000029DEBE8E8E0>('x=w\\*50/100-text_w/2(?![\\+\\-])', "[0:v]format=rgba[base];color=c=black@0:s=1980x1920:r=25,format=rgba,drawtext=text='测':fontfile='C\\:/Windows/Fonts/si...t_w/2:y=h*35/100-th/2,shear=shx=0.0:fillcolor=0x00000000[layer0];[base][layer0]overlay=x=-270.0000:y=0:shortest=1[out]")
+E        +    where <function search at 0x0000029DEBE8E8E0> = re.search
+
+tests\test_cover_wysiwyg_regression.py:124: AssertionError
+_______________________ test_fix_a_compensation_formula _______________________
+
+    def test_fix_a_compensation_formula():
+        """shear 补偿经 overlay x 偏移施加: overlay=x = shear_comp = shx*(h*tpy/100 - h/2)。
+        (Path B: drawtext x 为纯居中 w*tpx/100-text_w/2, 不含 text_w 度量偏差补偿项;
+        shear 补偿此前在 drawtext x, 现改到 overlay 以避免把宽标题推出左画布边缘导致裁切。)
+        """
+        tpy = 35
+        expected = 0.28 * (1920 * tpy / 100 - 1920 / 2)  # = -80.64
+        # italic 行: overlay x 应≈ shear_comp; drawtext x 应为纯居中 (无偏差项/无尾部带符号数字)
+        fc_on = _build_cover_filter_complex([("测试", 50, tpy, 120, "white", "black", 3, 0.28)], 1440, 1920, FONT_ESC)
+        m_ov = re.search(r"overlay=x=([+-][0-9.]+)", fc_on)
+        assert m_ov is not None, "italic overlay 未施加 shear 补偿量"
+>       assert abs(float(m_ov.group(1)) - expected) < 1e-6, f"overlay 补偿量应为 {expected}, 实际 {m_ov.group(1)}"
+E       AssertionError: overlay 补偿量应为 -80.64000000000001, 实际 -350.6400
+E       assert 270.0 < 1e-06
+E        +  where 270.0 = abs((-350.64 - -80.64000000000001))
+E        +    where -350.64 = float('-350.6400')
+E        +      where '-350.6400' = <built-in method group of re.Match object at 0x0000029D9758FBE0>(1)
+E        +        where <built-in method group of re.Match object at 0x0000029D9758FBE0> = <re.Match object; span=(285, 304), match='overlay=x=-350.6400'>.group
+
+tests\test_cover_wysiwyg_regression.py:138: AssertionError
+_____________________ test_scene_cache_hit_on_second_call _____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000029D97621C70>
+
+    def test_scene_cache_hit_on_second_call(monkeypatch):
+        """对同一片段第二次 analyze 应命中缓存，不再调用 vision。"""
+        # 清空缓存索引，保证第一次是 miss
+        cache_path = scene_cache.cache_path
+        if os.path.exists(cache_path):
+            os.unlink(cache_path)
+    
+        tmp = tempfile.mkdtemp(prefix="cache_test_")
+        try:
+            clip = os.path.join(tmp, "material.mp4")
+            _gen_clip(clip, dur=5)
+    
+            calls = {"n": 0}
+    
+            async def _fake_analyze(frames, ctxs, api_key):
+                calls["n"] += 1
+                # 返回与帧数等长的假描述（不发起真实 vision API）
+                return [f"cached_desc_{i}" for i in range(len(frames))]
+    
+            # monkeypatch 替换 vision 调用，用于断言"是否被再次调用"
+            monkeypatch.setattr(aie, "analyze_frames_batch", _fake_analyze)
+    
+            # 第一次：应 miss 缓存 → 调用 vision 1 次
+>           r1 = asyncio.run(aie._analyze_single_video(clip, ""))
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_scene_cache.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\11833\.workbuddy\binaries\python\versions\3.13.12\Lib\asyncio\runners.py:195: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\11833\.workbuddy\binaries\python\versions\3.13.12\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\11833\.workbuddy\binaries\python\versions\3.13.12\Lib\asyncio\base_events.py:725: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+video_path = 'C:\\Users\\11833\\AppData\\Local\\Temp\\cache_test_eih9em3b\\material.mp4'
+api_key = '', model = ''
+
+    async def _analyze_single_video(video_path: str, api_key: str, model: str = "") -> tuple[list, list, list]:
+        """检测场景 + 带缓存的 vision 描述（音频优先匹配的 P1 场景缓存）。
+    
+        对每一帧：先查 ``scene_cache``（key 含 video_path+mtime+frame_index+prompt），
+        命中则跳过 vision 调用；未命中才调 ``analyze_frames_batch``（并发）并写回缓存。
+    
+        Returns:
+            (scenes, descriptions, frame_paths)
+        """
+        scenes = detect_scenes(video_path)
+        if not scenes:
+            return [], [], []
+    
+        frame_dir = os.path.join(TEMP_DIR, "ai_frames", os.path.basename(video_path))
+        frame_paths = extract_scene_frames(video_path, scenes, frame_dir)
+    
+        try:
+            mtime = os.path.getmtime(video_path)
+        except OSError:
+            mtime = 0.0
+    
+        cached: dict = {}
+        miss_idx: list = []
+        miss_ctx: list = []
+        miss_frames: list = []
+        for si, s in enumerate(scenes):
+            ctx = f"时间点 {s['start']:.1f}s-{s['end']:.1f}s"
+            prompt = f"简要描述这个视频画面的内容（1-2句话）：{ctx}"
+            desc = scene_cache.get(video_path, mtime, s["index"], prompt)
+            if desc is not None:
+                cached[si] = desc
+            else:
+                miss_idx.append(si)
+                miss_ctx.append(ctx)
+                miss_frames.append(frame_paths[si])
+    
+        if miss_frames:
+>           new_descs = await analyze_frames_batch(miss_frames, miss_ctx, api_key, model)
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: test_scene_cache_hit_on_second_call.<locals>._fake_analyze() takes 3 positional arguments but 4 were given
+
+routes\ai_editing.py:111: TypeError
+=========================== short test summary info ===========================
+FAILED tests/test_cover_subtitle_audit.py::test_b_drawtext_x_pure_centered_and_shear_on_overlay
+FAILED tests/test_cover_subtitle_stroke_regression.py::test_bug2_exportconfirm_scaling
+FAILED tests/test_cover_wysiwyg_regression.py::test_fix_a_shear_compensation[\u4e3b\u6807\u9898-35-\u4eca\u65e5\u70ed\u70b9\u901f\u89c8]
+FAILED tests/test_cover_wysiwyg_regression.py::test_fix_a_shear_compensation[\u526f\u6807\u9898-55-\u7cbe\u5f69\u5185\u5bb9\u63a8\u8350]
+FAILED tests/test_cover_wysiwyg_regression.py::test_fix_a_shear_compensation[\u6d4b-35-\u6d4b]
+FAILED tests/test_cover_wysiwyg_regression.py::test_fix_a_compensation_formula
+FAILED tests/test_scene_cache.py::test_scene_cache_hit_on_second_call - TypeE...
+7 failed, 104 passed, 1 skipped in 152.44s (0:02:32)
