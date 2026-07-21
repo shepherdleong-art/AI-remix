@@ -39,6 +39,10 @@ Thumbs.db
 # ─── 运行时缓存（随分析生成，勿入库）───
 backend/data/analysis_cache/
 backend/data/batches/
+backend/.dev-port
+
+# ─── start.command / stop.command 运行时 PID ───
+.dev-pids/
 
 # ─── 工具/代理工作记忆（非项目源码）───
 .workbuddy/
