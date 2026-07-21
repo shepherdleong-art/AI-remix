@@ -529,6 +529,26 @@ const StepExportRight: React.FC = () => {
   const videoAspect = useEditingStore((s) => s.videoAspect);
   const videoResolution = useEditingStore((s) => s.videoResolution);
   const outputPath = useEditingStore((s) => s.outputPath);
+  const outputDir = useEditingStore((s) => s.outputDir);
+  const setOutputDir = useEditingStore((s) => s.setOutputDir);
+
+  const isElectron = !!(window as unknown as Record<string, unknown>).electronAPI;
+
+  const handlePickFolder = useCallback(async () => {
+    const electronAPI = (window as unknown as Record<string, unknown>).electronAPI as
+      | {
+          selectFolder: (defaultPath?: string) => Promise<{
+            code: number;
+            data: { canceled: boolean; paths: string[] } | null;
+          }>;
+        }
+      | undefined;
+    if (!electronAPI) return;
+    const resp = await electronAPI.selectFolder();
+    if (resp.code !== 0 || !resp.data || resp.data.canceled) return;
+    const folder = resp.data.paths[0];
+    if (folder) setOutputDir(folder);
+  }, [setOutputDir]);
 
   const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
@@ -544,7 +564,33 @@ const StepExportRight: React.FC = () => {
       <Row label="格式" value="MP4 (H.264)" />
       <Row label="画幅" value={videoAspect} />
       <Row label="分辨率" value={videoResolution} />
-      <Row label="输出路径" value={outputPath ?? '未指定'} />
+
+      <Box sx={{ py: 0.5 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+          导出目录（留空使用默认）
+        </Typography>
+        <Stack direction="row" spacing={1}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="/tmp/short-video-mashup-temp/outputs"
+            value={outputDir ?? ''}
+            onChange={(e) => setOutputDir(e.target.value || null)}
+          />
+          {isElectron && (
+            <Button size="small" variant="outlined" onClick={handlePickFolder} sx={{ flexShrink: 0 }}>
+              选择
+            </Button>
+          )}
+        </Stack>
+        {!isElectron && (
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+            浏览器模式暂不支持系统目录选择器，请手动填写本机绝对路径
+          </Typography>
+        )}
+      </Box>
+
+      {outputPath && <Row label="最近导出文件" value={outputPath} />}
     </Panel>
   );
 };

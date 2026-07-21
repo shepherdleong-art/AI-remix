@@ -26,6 +26,7 @@ import MovieIcon from '@mui/icons-material/Movie';
 import AspectRatioIcon from '@mui/icons-material/AspectRatio';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import HighQualityIcon from '@mui/icons-material/HighQuality';
+import DownloadIcon from '@mui/icons-material/Download';
 
 import { useEditingStore, TimelineSegment, computeOutputDims } from '@/renderer/store/editing-store';
 import { getBackendBaseUrl } from '@/renderer/api/backend-client';
@@ -70,6 +71,7 @@ const ExportConfirm: React.FC = () => {
   const voice = useEditingStore((s) => s.voice);
   const outputPath = useEditingStore((s) => s.outputPath);
   const setOutputPath = useEditingStore((s) => s.setOutputPath);
+  const outputDir = useEditingStore((s) => s.outputDir);
   const ttsApiKeys = useEditingStore((s) => s.ttsApiKeys);
   const ttsProvider = useEditingStore((s) => s.ttsProvider);
   const ttsAudioPath = useEditingStore((s) => s.audioPath);
@@ -268,6 +270,7 @@ const ExportConfirm: React.FC = () => {
         bgm_name: bgmName,
         bgm_volume: bgmVolume,
         voice_volume: voiceVolume,
+        output_dir: outputDir || undefined,
       });
 
       if (resp.code !== 0) {
@@ -445,6 +448,29 @@ const ExportConfirm: React.FC = () => {
             }}
           >
             查看文件
+          </Button>
+        )}
+
+        {outputPath && !rendering && (
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={() => {
+              // 浏览器模式下无法打开系统文件夹，改为触发标准浏览器下载——
+              // 文件会进入用户的「下载」目录，比停留在 /tmp 更容易找到。
+              // download=1 让后端带上 Content-Disposition: attachment；
+              // 单纯的 <a download> 属性在跨源链接上会被浏览器忽略。
+              const url = `${backendUrl}/api/ai-editing/video?path=${encodeURIComponent(outputPath)}&download=1`;
+              const filename = outputPath.split(/[\\/]/).pop() || 'export.mp4';
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+            }}
+          >
+            下载到本地
           </Button>
         )}
       </Box>

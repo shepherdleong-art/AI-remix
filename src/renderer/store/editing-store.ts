@@ -37,6 +37,8 @@ interface EditingState {
   voice: string;
   /** Rendered output path */
   outputPath: string | null;
+  /** User-customized export directory (absolute path). Null = use backend default (TEMP_DIR/outputs). */
+  outputDir: string | null;
   /** TTS audio duration in seconds */
   audioDuration: number | null;
   /** Pre-generated TTS audio path */
@@ -119,6 +121,7 @@ interface EditingState {
   setScript: (s: string) => void;
   setVoice: (v: string) => void;
   setOutputPath: (p: string | null) => void;
+  setOutputDir: (d: string | null) => void;
   setAudioDuration: (d: number | null) => void;
   setAudioPath: (p: string | null) => void;
   bumpAudioVersion: () => void;
@@ -181,6 +184,7 @@ const initialState = {
   script: '',
   voice: 'Cherry',
   outputPath: null as string | null,
+  outputDir: null as string | null,
   audioDuration: null as number | null,
   audioPath: null as string | null,
   audioVersion: 0,
@@ -307,6 +311,7 @@ export const useEditingStore = create<EditingState>()(
   setScript: (script) => set({ script }),
   setVoice: (voice) => set({ voice }),
   setOutputPath: (outputPath) => set({ outputPath }),
+  setOutputDir: (outputDir) => set({ outputDir }),
   setAudioDuration: (audioDuration) => set({ audioDuration }),
   setAudioPath: (audioPath) => set({ audioPath }),
   bumpAudioVersion: () => set((s) => ({ audioVersion: s.audioVersion + 1 })),
@@ -424,6 +429,8 @@ export const useEditingStore = create<EditingState>()(
         // Global video aspect (shared by preview + export)
         videoAspect: s.videoAspect,
         videoResolution: s.videoResolution,
+        // Custom export directory preference (persisted; empty = backend default)
+        outputDir: s.outputDir,
       }),
       // v1：旧版单一 apiKey 升级时，迁移到「画面分析 + 千问 TTS」两侧，避免用户重填
       version: 1,

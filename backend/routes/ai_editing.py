@@ -72,6 +72,31 @@ def _err(code: int, msg: str):
     return {"code": code, "message": msg, "data": None}
 
 
+def _resolve_output_dir(req: dict):
+    """解析请求里可选的自定义导出目录，未提供时回退默认 TEMP_DIR/outputs。
+
+    Returns (output_dir, None) on success, or (None, error_envelope) on failure.
+    """
+    custom_dir = (req.get("output_dir") or "").strip()
+    if not custom_dir:
+        output_dir = os.path.join(TEMP_DIR, "outputs")
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir, None
+
+    if not os.path.isabs(custom_dir):
+        return None, _err(40003, f"输出目录必须是绝对路径: {custom_dir}")
+
+    try:
+        os.makedirs(custom_dir, exist_ok=True)
+    except OSError as e:
+        return None, _err(40003, f"输出目录无效或无法创建: {custom_dir} ({e})")
+
+    if not os.access(custom_dir, os.W_OK):
+        return None, _err(40003, f"输出目录无写入权限: {custom_dir}")
+
+    return custom_dir, None
+
+
 def _tts_cache_tag(voice: str, speed: float, provider: str = "") -> str:
     """TTS 产物文件名标签：把音色/语速/服务商混入哈希。
 
@@ -348,8 +373,9 @@ async def composite_endpoint(req: dict):
         )
 
         # Composite with correct video_path + timestamps
-        output_dir = os.path.join(TEMP_DIR, "outputs")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir, dir_err = _resolve_output_dir(req)
+        if dir_err:
+            return dir_err
         output_path = os.path.join(output_dir, f"{output_name}.mp4")
         _append_mix_log(f"[COMPOSITE] output_path={output_path}")
         composite_clip(segments, audio_path, output_path, target_width, target_height, subtitle_style)
@@ -719,8 +745,9 @@ async def full_pipeline(req: dict):
         })
 
         # Step 6: Composite 复用已有音频（不重新生成 TTS）
-        output_dir = os.path.join(TEMP_DIR, "outputs")
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir, dir_err = _resolve_output_dir(req)
+        if dir_err:
+            return dir_err
         output_path = os.path.join(output_dir, f"{output_name}.mp4")
         fp_aspect = req.get("video_aspect", "9:16")
         fp_resolution = req.get("video_resolution", "1080p")
@@ -992,10 +1019,18 @@ async def serve_font(path: str):
 # ─── File Serving for Preview ──────────────────────────
 
 @router.get("/video")
-async def serve_video(path: str):
-    """Serve generated MP4 video for browser preview."""
+async def serve_video(path: str, download: bool = False):
+    """Serve generated MP4 video for browser preview, or force a download.
+
+    浏览器模式下前端无法调用系统"另存为"/在文件夹中显示，`download=true`
+    时改为附带 Content-Disposition: attachment，让浏览器把文件存进用户的
+    「下载」目录——这个响应头对跨源请求同样生效（不同于 <a download> 属性，
+    后者在跨源链接上会被浏览器忽略）。
+    """
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Video not found")
+    if download:
+        return FileResponse(path, media_type="video/mp4", filename=os.path.basename(path))
     return FileResponse(path, media_type="video/mp4")
 
 
